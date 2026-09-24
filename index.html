@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Labor">
+<meta name="theme-color" content="#f6f5f1" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#16171a" media="(prefers-color-scheme: dark)">
+<title>Labor · Messwerte</title>
+<style>
+:root{
+  --bg:#f6f5f1; --card:#ffffff; --ink:#1d1d1b; --muted:#6f6d66; --line:#e4e1d8;
+  --accent:#8a6d1d; --accent-soft:#f1e9d2; --chip:#ecE9e0;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#16171a; --card:#202226; --ink:#ecebe7; --muted:#9a988f; --line:#33353a;
+         --accent:#d6b45a; --accent-soft:#3a3322; --chip:#2a2c31; }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:15px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+.wrap{max-width:1100px;margin:0 auto;padding:20px 16px 48px}
+header{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+h1{font-size:24px;margin:0;letter-spacing:-.01em}
+.sub{color:var(--muted);font-size:13px}
+button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--ink);
+  border-radius:10px;padding:7px 12px;cursor:pointer}
+button:active{transform:scale(.98)}
+.bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 16px}
+.bar input{flex:1 1 180px;min-width:0;font:inherit;padding:8px 12px;border-radius:10px;
+  border:1px solid var(--line);background:var(--card);color:var(--ink)}
+.chips{display:flex;gap:6px}
+.chip{background:var(--chip);border-color:transparent;padding:7px 12px}
+.chip[aria-pressed=true]{background:var(--accent);color:#fff}
+@media (prefers-color-scheme: dark){ .chip[aria-pressed=true]{color:#16171a} }
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:8px;margin-bottom:28px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px 14px 12px}
+.card h3{margin:0;font-size:17px;display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.card h3 small{font-weight:400;color:var(--muted);font-size:12px;white-space:nowrap}
+.vals{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:8px}
+.v .k{font-size:11px;color:var(--muted)}
+.v .n{font-size:19px;font-variant-numeric:tabular-nums;font-weight:600}
+.v .n span{font-size:11px;font-weight:400;color:var(--muted);margin-left:3px}
+.v.na .n{color:var(--line)}
+h2{font-size:15px;margin:0 0 8px;color:var(--muted);font-weight:600}
+.tablebox{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:auto}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums;font-size:14px}
+th,td{padding:8px 12px;text-align:left;white-space:nowrap;border-bottom:1px solid var(--line)}
+th{font-size:12px;color:var(--muted);font-weight:600;position:sticky;top:0;background:var(--card)}
+td.r,th.r{text-align:right}
+tr:last-child td{border-bottom:0}
+tr.day td{background:var(--accent-soft);font-weight:600;font-size:13px;color:var(--ink)}
+.empty,.err{padding:24px;text-align:center;color:var(--muted)}
+.err{color:#b3261e}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Labor · Messwerte</h1>
+      <div class="sub" id="stand">lädt …</div>
+    </div>
+    <button id="reload" title="Neu laden">↻ Aktualisieren</button>
+  </header>
+
+  <div class="bar">
+    <input id="q" type="search" placeholder="Probe suchen, z. B. T7" autocomplete="off">
+    <div class="chips" role="group" aria-label="Zeitraum">
+      <button class="chip" data-r="1" aria-pressed="true">Heute</button>
+      <button class="chip" data-r="7" aria-pressed="false">7 Tage</button>
+      <button class="chip" data-r="30" aria-pressed="false">30 Tage</button>
+      <button class="chip" data-r="0" aria-pressed="false">Alle</button>
+    </div>
+  </div>
+
+  <h2 id="h-cards">Proben</h2>
+  <div class="grid" id="cards"></div>
+
+  <h2>Alle Messungen</h2>
+  <div class="tablebox"><table>
+    <thead><tr><th>Zeit</th><th>Probe</th><th>Methode</th><th class="r">pH</th><th class="r">Gesamtsäure g/l</th><th class="r">SO₂ frei</th><th class="r">SO₂ gesamt</th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table></div>
+</div>
+
+<script>
+const host = location.hostname;
+const DATA_URL = host.endsWith('.github.io')
+  ? `https://raw.githubusercontent.com/${host.split('.')[0]}/${location.pathname.split('/')[1]}/data/data.json`
+  : 'data.json';
+
+let DATA = [], range = 1, lastLoad = null;
+try { const s = localStorage.getItem('range'); if (s !== null) range = +s; } catch(e){}
+
+const $ = id => document.getElementById(id);
+const fmt = (v, d) => v == null ? '–' : v.toLocaleString('de-AT', {minimumFractionDigits:d, maximumFractionDigits:d});
+const dt = s => new Date(s);
+const dayKey = s => s.slice(0,10);
+const fDay = s => dt(s).toLocaleDateString('de-AT', {weekday:'short', day:'2-digit', month:'2-digit', year:'numeric'});
+const fTime = s => s.slice(11,16);
+function fWhen(s){
+  const d = dt(s), now = new Date();
+  return dayKey(s) === toLocalISO(now).slice(0,10) ? 'heute ' + fTime(s)
+       : d.toLocaleDateString('de-AT',{day:'2-digit',month:'2-digit'}) + ' ' + fTime(s);
+}
+function toLocalISO(d){ const z = n => String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${z(d.getMonth()+1)}-${z(d.getDate())}T${z(d.getHours())}:${z(d.getMinutes())}`; }
+
+function filtered(){
+  const q = $('q').value.trim().toLowerCase();
+  let from = null;
+  if (range > 0){ const d = new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate() - (range-1)); from = toLocalISO(d); }
+  return DATA.filter(it => (!from || it.t >= from) && (!q || it.probe.toLowerCase().includes(q)));
+}
+
+function render(){
+  const items = filtered();
+  // Karten: je Probe die jeweils letzten Werte
+  const groups = new Map();
+  for (const it of items){
+    const key = it.probe + '|' + dayKey(it.t);
+    let g = groups.get(key);
+    if (!g){ g = {probe: it.probe, t: it.t, n: 0}; groups.set(key, g); }
+    g.n++;
+    for (const k of ['ph','gs','so2f','so2t']) if (it[k] != null && g[k] == null) g[k] = it[k];
+  }
+  const v = (k, n, d, u) => `<div class="v ${n==null?'na':''}"><div class="k">${k}</div><div class="n">${fmt(n,d)}${n!=null&&u?`<span>${u}</span>`:''}</div></div>`;
+  $('cards').innerHTML = groups.size ? [...groups.values()].map(g => `
+    <div class="card">
+      <h3>${esc(g.probe)}<small>${fWhen(g.t)}</small></h3>
+      <div class="vals">
+        ${v('pH', g.ph, 2)}${v('Säure', g.gs, 2, 'g/l')}
+        ${v('SO₂ frei', g.so2f, 0)}${v('SO₂ ges.', g.so2t, 0)}
+      </div>
+    </div>`).join('') : `<div class="empty">Keine Messungen im gewählten Zeitraum.</div>`;
+  $('h-cards').textContent = `Proben (${groups.size})`;
+
+  let html = '', last = '';
+  for (const it of items){
+    const d = dayKey(it.t);
+    if (d !== last){ html += `<tr class="day"><td colspan="7">${fDay(it.t)}</td></tr>`; last = d; }
+    html += `<tr><td>${fTime(it.t)}</td><td>${esc(it.probe)}</td><td>${esc(it.methode)}</td>
+      <td class="r">${fmt(it.ph,2)}</td><td class="r">${fmt(it.gs,2)}</td>
+      <td class="r">${fmt(it.so2f,0)}</td><td class="r">${fmt(it.so2t,0)}</td></tr>`;
+  }
+  $('rows').innerHTML = html || `<tr><td colspan="7" class="empty">–</td></tr>`;
+}
+function esc(s){ return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+async function load(){
+  $('stand').textContent = 'lädt …';
+  try{
+    const r = await fetch(DATA_URL + '?t=' + Date.now(), {cache:'no-store'});
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const j = await r.json();
+    DATA = j.items || [];
+    lastLoad = new Date();
+    const latest = DATA[0] ? `letzte Messung ${fDay(DATA[0].t)} ${fTime(DATA[0].t)}` : 'keine Messungen';
+    $('stand').textContent = `${latest} · ${DATA.length} Messungen`;
+    render();
+  }catch(e){
+    $('stand').innerHTML = `<span class="err">Daten nicht erreichbar (${esc(e.message)})</span>`;
+  }
+}
+
+document.querySelectorAll('.chip').forEach(b => {
+  b.setAttribute('aria-pressed', +b.dataset.r === range);
+  b.onclick = () => {
+    range = +b.dataset.r;
+    try { localStorage.setItem('range', range); } catch(e){}
+    document.querySelectorAll('.chip').forEach(x => x.setAttribute('aria-pressed', x === b));
+    render();
+  };
+});
+$('q').oninput = render;
+$('reload').onclick = load;
+document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
+setInterval(load, 120000);
+load();
+</script>
+</body>
+</html>
