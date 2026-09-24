@@ -39,11 +39,13 @@ button:active{transform:scale(.98)}
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px 14px 12px}
 .card h3{margin:0;font-size:17px;display:flex;justify-content:space-between;gap:8px;align-items:baseline}
 .card h3 small{font-weight:400;color:var(--muted);font-size:12px;white-space:nowrap}
-.vals{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:8px}
-.v .k{font-size:11px;color:var(--muted)}
+.vals{display:grid;grid-template-columns:repeat(4,1fr);gap:8px 8px;margin-top:8px}
+td b{font-weight:600} td i{font-style:normal;color:var(--muted);font-size:12px}
+td.m{color:var(--muted);font-size:13px}
+.src{display:inline-block;margin-left:6px;font-size:10px;padding:1px 6px;border-radius:6px;background:var(--chip);color:var(--muted)}
+.v .k{font-size:11px;color:var(--muted);white-space:nowrap}
 .v .n{font-size:19px;font-variant-numeric:tabular-nums;font-weight:600}
 .v .n span{font-size:11px;font-weight:400;color:var(--muted);margin-left:3px}
-.v.na .n{color:var(--line)}
 h2{font-size:15px;margin:0 0 8px;color:var(--muted);font-weight:600}
 .tablebox{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:auto}
 table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums;font-size:14px}
@@ -81,7 +83,7 @@ tr.day td{background:var(--accent-soft);font-weight:600;font-size:13px;color:var
 
   <h2>Alle Messungen</h2>
   <div class="tablebox"><table>
-    <thead><tr><th>Zeit</th><th>Probe</th><th>Methode</th><th class="r">pH</th><th class="r">Gesamtsäure g/l</th><th class="r">SO₂ frei</th><th class="r">SO₂ gesamt</th></tr></thead>
+    <thead><tr><th>Zeit</th><th>Probe</th><th>Methode</th><th>Ergebnis</th></tr></thead>
     <tbody id="rows"></tbody>
   </table></div>
 </div>
@@ -116,37 +118,40 @@ function filtered(){
   return DATA.filter(it => (!from || it.t >= from) && (!q || it.probe.toLowerCase().includes(q)));
 }
 
+const FIELDS = [
+  ['ph','pH',2,''], ['gs','Gesamtsäure',2,'g/l'], ['ws','Weinsäure',2,'g/l'], ['ms','Äpfelsäure',2,'g/l'],
+  ['zucker','Glc+Fru',2,'g/l'], ['so2f','SO₂ frei',0,'mg/l'], ['so2t','SO₂ ges.',0,'mg/l']
+];
 function render(){
   const items = filtered();
-  // Karten: je Probe die jeweils letzten Werte
+  // Karten: je Probe und Tag die jeweils letzten Werte
   const groups = new Map();
   for (const it of items){
     const key = it.probe + '|' + dayKey(it.t);
     let g = groups.get(key);
-    if (!g){ g = {probe: it.probe, t: it.t, n: 0}; groups.set(key, g); }
-    g.n++;
-    for (const k of ['ph','gs','so2f','so2t']) if (it[k] != null && g[k] == null) g[k] = it[k];
+    if (!g){ g = {probe: it.probe, t: it.t}; groups.set(key, g); }
+    for (const [k] of FIELDS) if (it[k] != null && g[k] == null) g[k] = it[k];
   }
-  const v = (k, n, d, u) => `<div class="v ${n==null?'na':''}"><div class="k">${k}</div><div class="n">${fmt(n,d)}${n!=null&&u?`<span>${u}</span>`:''}</div></div>`;
+  const v = ([k, label, d, u], n) => `<div class="v"><div class="k">${label}</div><div class="n">${fmt(n,d)}${u?`<span>${u}</span>`:''}</div></div>`;
   $('cards').innerHTML = groups.size ? [...groups.values()].map(g => `
     <div class="card">
       <h3>${esc(g.probe)}<small>${fWhen(g.t)}</small></h3>
-      <div class="vals">
-        ${v('pH', g.ph, 2)}${v('Säure', g.gs, 2, 'g/l')}
-        ${v('SO₂ frei', g.so2f, 0)}${v('SO₂ ges.', g.so2t, 0)}
-      </div>
+      <div class="vals">${FIELDS.filter(f => g[f[0]] != null).map(f => v(f, g[f[0]])).join('')}</div>
     </div>`).join('') : `<div class="empty">Keine Messungen im gewählten Zeitraum.</div>`;
   $('h-cards').textContent = `Proben (${groups.size})`;
 
   let html = '', last = '';
   for (const it of items){
     const d = dayKey(it.t);
-    if (d !== last){ html += `<tr class="day"><td colspan="7">${fDay(it.t)}</td></tr>`; last = d; }
-    html += `<tr><td>${fTime(it.t)}</td><td>${esc(it.probe)}</td><td>${esc(it.methode)}</td>
-      <td class="r">${fmt(it.ph,2)}</td><td class="r">${fmt(it.gs,2)}</td>
-      <td class="r">${fmt(it.so2f,0)}</td><td class="r">${fmt(it.so2t,0)}</td></tr>`;
+    if (d !== last){ html += `<tr class="day"><td colspan="4">${fDay(it.t)}</td></tr>`; last = d; }
+    const res = FIELDS.filter(f => it[f[0]] != null)
+      .map(([k, label, dd, u]) => `<b>${fmt(it[k], dd)}</b> ${label}${u ? ' <i>'+u+'</i>' : ''}`);
+    if (it.wert != null) res.push(`<b>${fmt(it.wert, 2)}</b> <i>${esc(it.einheit||'')}</i>`);
+    html += `<tr><td>${fTime(it.t)}</td><td>${esc(it.probe)}</td>
+      <td class="m">${esc(it.methode)}<span class="src">${it.q === 'hi' ? 'Enzym' : 'Flash'}</span></td>
+      <td>${res.join(' · ')}</td></tr>`;
   }
-  $('rows').innerHTML = html || `<tr><td colspan="7" class="empty">–</td></tr>`;
+  $('rows').innerHTML = html || `<tr><td colspan="4" class="empty">–</td></tr>`;
 }
 function esc(s){ return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
